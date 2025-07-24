@@ -1,36 +1,69 @@
-# TODO: Compression Script Issues
+# TODO: Compression Script Fixes
 
-## Current Problems
+## Critical Issues to Fix
 
-### 🐌 Progress Bar Ineffectiveness
+### 1. Error Handling & Pipeline Failures
+**Problem**: Pipeline can fail silently, leaving phantom .partial files
+**Tasks**:
+- [ ] Add `set -o pipefail` to catch errors in tar|pv|zstd pipeline
+- [ ] Implement trap cleanup function to remove .partial files on failure/interrupt
+- [ ] Check exit codes for each command in pipeline separately
+- [ ] Add proper error messages indicating which component failed
 
-- `zenity --progress` remains mostly empty during compression.
-- Likely caused by `tar` buffering output heavily, especially for many small files.
-- Even with `--blocking-factor=64`, it’s not consistently useful.
-- Need a better way to measure and indicate progress
-  - (e.g., per-file progress or alternative frontend).
+### 2. Phantom .partial Files
+**Problem**: .partial files remain undeletable with I/O errors
+**Tasks**:
+- [ ] Add `sync` command after compression to ensure data is written
+- [ ] Check available disk space before starting compression
+- [ ] Use unique timestamp-based temp filenames to avoid collisions
+- [ ] Implement file validation after compression (check if archive is valid)
+- [ ] Add fallback cleanup with `lsof` check for open file handles
 
-### ⚠️ Phantom/Incomplete `.partial` Files
+### 3. Progress Bar Issues
+**Problem**: zenity progress stays empty, pv output not properly parsed
+**Tasks**:
+- [ ] Fix pv output parsing - extract percentage from stderr
+- [ ] Use named pipe (FIFO) to properly communicate progress to zenity
+- [ ] Add fallback progress based on file count (for many small files)
+- [ ] Consider showing dual progress: files processed + data compressed
 
-- After compression appears "complete", `.partial` file:
-  - Remains in place and undeletable (`Input/output error`)
-  - Appears with wrong size (e.g., 5.7GB vs expected ~24GB)
-  - Cannot be opened in Nautilus: “File is of unknown type”
-- Indicates the pipeline may crash, hang, or not fully close the file descriptor.
+## Medium Priority Improvements
 
-## Next Steps
+### 4. Debugging & Logging
+**Tasks**:
+- [ ] Create log file in `/tmp` for each compression operation
+- [ ] Log start time, parameters, and all stderr output
+- [ ] Add verbose mode option to show detailed progress
+- [ ] Include system info in logs (disk space, memory, etc.)
 
-- Investigate if `zstd` or `pv` hangs silently under specific conditions
-  - (e.g., full disk, drive sleep).
-- Log compression stdout/stderr to a temp file for debugging.
-- Consider writing to a safe local path first, then copying to destination.
-- Explore `tar --sparse` and `zstd --long` flags for large inputs.
-- Add timestamp-based `.partial` filenames to avoid collision or stale state.
-- Test against other drives and filesystems (ext4 vs NTFS/FAT).
+### 5. Safety Features
+**Tasks**:
+- [ ] Pre-flight checks: disk space, write permissions, zstd memory requirements
+- [ ] Add option to verify archive integrity after creation
+- [ ] Implement resume capability for interrupted compressions
+- [ ] Add compression level selection (balance speed vs size)
 
-## Potential Long-Term Improvements
+### 6. Performance Optimizations
+**Tasks**:
+- [ ] Test different tar blocking factors for various file types
+- [ ] Experiment with zstd --long flag for better compression
+- [ ] Add option to exclude certain file types (.git, node_modules, etc.)
+- [ ] Consider parallel compression for multiple directories
 
-- Replace `zenity --progress` with a custom GTK dialog or CLI TUI.
-- Track individual file compression with `find` + `tar --files-from`.
-- Use systemd-run or at least subshell with
-  `set -o pipefail` for more robust process detection.
+## Implementation Order
+
+1. **First**: Fix error handling (set -o pipefail, trap cleanup)
+2. **Second**: Fix .partial file issues (sync, validation)
+3. **Third**: Fix progress bar with proper pv parsing
+4. **Fourth**: Add logging for debugging
+5. **Fifth**: Add safety checks and optimizations
+
+## Testing Checklist
+
+- [ ] Test with single large file (>1GB)
+- [ ] Test with many small files (10,000+)
+- [ ] Test with insufficient disk space
+- [ ] Test interruption (Ctrl+C) during compression
+- [ ] Test on different filesystems (ext4, NTFS, network drives)
+- [ ] Test with special characters in filenames
+- [ ] Test with symbolic links and special files

@@ -1,6 +1,22 @@
 # TODO: Compression Script Fixes
 
-## Critical Issues to Fix
+## Remaining Issues to Fix
+
+### 1. Silent Failure on Read-Only Directories
+**Problem**: Progress dialog disappears without error when target is read-only
+**Tasks**:
+- [ ] Check write permissions before starting compression
+- [ ] Show proper error dialog when output file can't be created
+- [ ] Test with various permission scenarios
+
+### 2. Progress Bar Percentage
+**Problem**: Currently using --pulsate, not showing actual percentage
+**Tasks**:
+- [ ] Implement proper percentage parsing from pv
+- [ ] Consider alternative progress tracking methods
+- [ ] Test with large files to ensure smooth progress updates
+
+## Original Issues (For Reference)
 
 ### 1. Error Handling & Pipeline Failures
 **Problem**: Pipeline can fail silently, leaving phantom .partial files
@@ -67,3 +83,27 @@
 - [ ] Test on different filesystems (ext4, NTFS, network drives)
 - [ ] Test with special characters in filenames
 - [ ] Test with symbolic links and special files
+
+## Completed Tasks
+
+### Error Handling & Pipeline Failures ✓
+- [x] Added `set -euo pipefail` to catch pipeline errors
+- [x] Implemented trap cleanup for .partial files
+- [x] Using ${PIPESTATUS[0]} to check pipeline exit status
+- [x] Added proper error messages with log file references
+
+### Phantom .partial Files ✓
+- [x] Added `sync` after compression to ensure data is written
+- [x] Using unique timestamp + PID for temp filenames
+- [x] Validating archives with `zstd -t` before moving
+- [x] Trap cleanup removes .partial files on failure/interrupt
+
+### Logging & Debugging ✓
+- [x] Created dedicated log directory `/tmp/nautilus_compress_logs/`
+- [x] Logging start time, source, target, and sizes
+- [x] Capturing stderr from all pipeline commands
+- [x] Success/error dialogs show log file path
+
+### Progress Indication (Partial) ✓
+- [x] Switched to --pulsate mode for activity indication
+- [x] Fixed pipeline to properly handle zenity dialog

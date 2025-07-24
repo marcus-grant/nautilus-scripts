@@ -29,6 +29,19 @@ for SRC in "$@"; do
   TIMESTAMP=$(date +%Y%m%d_%H%M%S_$$)
   TEMP_PATH="${FINAL_PATH}.${TIMESTAMP}.partial"
   
+  # Create log directory and file
+  LOG_DIR="/tmp/nautilus_compress_logs"
+  mkdir -p "$LOG_DIR"
+  LOG_FILE="$LOG_DIR/compress_${DIR_NAME}_${TIMESTAMP}.log"
+  
+  # Start logging
+  echo "=== Compression Log ===" > "$LOG_FILE"
+  echo "Date: $(date)" >> "$LOG_FILE"
+  echo "Source: $SRC" >> "$LOG_FILE"
+  echo "Target: $FINAL_PATH" >> "$LOG_FILE"
+  echo "Size: $(du -sh "$SRC" | cut -f1)" >> "$LOG_FILE"
+  echo "" >> "$LOG_FILE"
+  
   # Cleanup function
   cleanup() {
     if [ -f "$TEMP_PATH" ]; then
@@ -40,10 +53,11 @@ for SRC in "$@"; do
   SIZE_BYTES=$(du -sb "$SRC" | awk '{print $1}')
 
   # Run compression pipeline
+  echo "Starting compression..." >> "$LOG_FILE"
   (
-    tar --blocking-factor=64 -cf - -C "$DIR_PATH" "$DIR_NAME" |
-      pv -s "$SIZE_BYTES" |
-      zstd -T0 -9 -o "$TEMP_PATH"
+    tar --blocking-factor=64 -cf - -C "$DIR_PATH" "$DIR_NAME" 2>> "$LOG_FILE" |
+      pv -s "$SIZE_BYTES" 2>> "$LOG_FILE" |
+      zstd -T0 -9 -o "$TEMP_PATH" 2>> "$LOG_FILE"
   ) 2>&1 | zenity --progress \
     --title="Compressing $DIR_NAME" \
     --text="Creating ${DIR_NAME}.tar.zst..." \
@@ -51,20 +65,26 @@ for SRC in "$@"; do
     --auto-close
 
   if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    echo "Compression completed, syncing..." >> "$LOG_FILE"
     # Ensure all data is written to disk
     sync
     
     # Validate the archive before moving
-    if zstd -t "$TEMP_PATH" 2>/dev/null; then
+    echo "Validating archive..." >> "$LOG_FILE"
+    if zstd -t "$TEMP_PATH" 2>> "$LOG_FILE"; then
       mv "$TEMP_PATH" "$FINAL_PATH"
       trap - EXIT INT TERM  # Remove trap since we succeeded
-      zenity --info --text="Compressed to:\n$FINAL_PATH"
+      echo "SUCCESS: Archive created at $FINAL_PATH" >> "$LOG_FILE"
+      echo "Final size: $(du -sh "$FINAL_PATH" | cut -f1)" >> "$LOG_FILE"
+      zenity --info --text="Compressed to:\n$FINAL_PATH\n\nLog: $LOG_FILE"
     else
-      zenity --error --text="Archive validation failed!\nThe compressed file appears corrupted."
+      echo "ERROR: Archive validation failed!" >> "$LOG_FILE"
+      zenity --error --text="Archive validation failed!\nThe compressed file appears corrupted.\n\nLog: $LOG_FILE"
       # cleanup will run via trap
     fi
   else
-    zenity --error --text="Compression failed for:\n$SRC"
+    echo "ERROR: Compression pipeline failed!" >> "$LOG_FILE"
+    zenity --error --text="Compression failed for:\n$SRC\n\nLog: $LOG_FILE"
     # cleanup will run via trap
   fi
 done

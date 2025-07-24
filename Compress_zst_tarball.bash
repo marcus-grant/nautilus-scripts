@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -euo pipefail
 
 if [ $# -eq 0 ]; then
   zenity --error --text="No directory selected!"
@@ -26,25 +26,45 @@ for SRC in "$@"; do
   DIR_PATH="$(dirname "$SRC")"
   DIR_NAME="$(basename "$SRC")"
   FINAL_PATH="${DIR_PATH}/${DIR_NAME}.tar.zst"
-  TEMP_PATH="${FINAL_PATH}.partial"
+  TIMESTAMP=$(date +%Y%m%d_%H%M%S_$$)
+  TEMP_PATH="${FINAL_PATH}.${TIMESTAMP}.partial"
+  
+  # Cleanup function
+  cleanup() {
+    if [ -f "$TEMP_PATH" ]; then
+      rm -f "$TEMP_PATH" 2>/dev/null || true
+    fi
+  }
+  trap cleanup EXIT INT TERM
 
   SIZE_BYTES=$(du -sb "$SRC" | awk '{print $1}')
 
+  # Run compression pipeline
   (
     tar --blocking-factor=64 -cf - -C "$DIR_PATH" "$DIR_NAME" |
       pv -s "$SIZE_BYTES" |
       zstd -T0 -9 -o "$TEMP_PATH"
-  ) | zenity --progress \
+  ) 2>&1 | zenity --progress \
     --title="Compressing $DIR_NAME" \
     --text="Creating ${DIR_NAME}.tar.zst..." \
-    --percentage=0 \
+    --pulsate \
     --auto-close
 
-  if [ $? -eq 0 ]; then
-    mv "$TEMP_PATH" "$FINAL_PATH"
-    zenity --info --text="✅ Compressed to:\n$FINAL_PATH"
+  if [ ${PIPESTATUS[0]} -eq 0 ]; then
+    # Ensure all data is written to disk
+    sync
+    
+    # Validate the archive before moving
+    if zstd -t "$TEMP_PATH" 2>/dev/null; then
+      mv "$TEMP_PATH" "$FINAL_PATH"
+      trap - EXIT INT TERM  # Remove trap since we succeeded
+      zenity --info --text="Compressed to:\n$FINAL_PATH"
+    else
+      zenity --error --text="Archive validation failed!\nThe compressed file appears corrupted."
+      # cleanup will run via trap
+    fi
   else
-    rm -f "$TEMP_PATH"
-    zenity --error --text="❌ Compression failed for:\n$SRC"
+    zenity --error --text="Compression failed for:\n$SRC"
+    # cleanup will run via trap
   fi
 done
